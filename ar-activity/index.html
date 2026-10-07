@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full bg-slate-950">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MindAR 多目標 3D 展覽館</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- A-Frame Web Components Library -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  
+  <!-- MindAR Image Tracking Library for A-Frame -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    /* Prevent default gestures on touch elements for AR smooth interaction */
+    body, html {
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+      overflow: hidden;
+    }
+
+    /* Custom Scanner Laser Animation */
+    @keyframes scanAnimation {
+      0% { top: 5%; opacity: 0.3; }
+      50% { top: 90%; opacity: 1; }
+      100% { top: 5%; opacity: 0.3; }
+    }
+
+    .scan-line {
+      position: absolute;
+      width: 100%;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, #3b82f6, #60a5fa, #3b82f6, transparent);
+      box-shadow: 0 0 15px #3b82f6, 0 0 8px #60a5fa;
+      animation: scanAnimation 2.5s infinite ease-in-out;
+    }
+
+    /* Target Reticle Pulsing Glow */
+    @keyframes pulseGlow {
+      0%, 100% { border-color: rgba(59, 130, 246, 0.6); box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
+      50% { border-color: rgba(96, 165, 250, 1); box-shadow: 0 0 25px rgba(96, 165, 250, 0.7); }
+    }
+
+    .reticle-box {
+      animation: pulseGlow 2s infinite ease-in-out;
+    }
+
+    /* Glassmorphism Styles */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .glass-button {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      transition: all 0.2s ease;
+    }
+
+    .glass-button:active {
+      transform: scale(0.92);
+      background: rgba(59, 130, 246, 0.4);
+    }
+
+    /* Custom Scrollbar for Drawer */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.5);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.5);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+
+<body class="h-full w-full text-slate-100 font-sans overflow-hidden bg-slate-950">
+
+  <!-- 1. Start & Permission Overlay -->
+  <div id="start-overlay" class="fixed inset-0 z-50 flex flex-col items-center justify-between p-6 bg-slate-950/95 backdrop-blur-xl transition-opacity duration-500">
+    <!-- Header info -->
+    <div class="w-full max-w-md pt-8 text-center space-y-3">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-600/20 border border-blue-500/30 text-blue-400 text-3xl shadow-lg shadow-blue-500/20 mb-2">
+        <i class="fa-solid font-sharp fa-cube"></i>
+      </div>
+      <h1 class="text-2xl font-bold tracking-wide text-white">MindAR 3D 沉浸式展覽</h1>
+      <p class="text-sm text-slate-400">請允許相機權限，並將鏡頭對準指定圖片卡片，即可體驗 3D 立體模型展示。</p>
+    </div>
+
+    <!-- Instructions / Targets Quick Overview -->
+    <div class="w-full max-w-md my-auto space-y-3 glass-panel rounded-2xl p-4 border border-slate-800">
+      <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+        <span>支援掃描的物件 (共 6 項)</span>
+        <span class="text-blue-400 text-[10px]">targets.mind</span>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+          <i class="fa-solid fa-book text-blue-400 w-4 text-center"></i>
+          <span class="text-slate-200">0: 書本 (Book)</span>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+          <i class="fa-solid fa-box text-amber-400 w-4 text-center"></i>
+          <span class="text-slate-200">1: 箱子 (Box)</span>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+          <i class="fa-solid fa-chair text-emerald-400 w-4 text-center"></i>
+          <span class="text-slate-200">2: 椅子 (Chair)</span>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+          <i class="fa-solid fa-pen-ruler text-purple-400 w-4 text-center"></i>
+          <span class="text-slate-200">3: 鉛筆盒 (Pencil Box)</span>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+          <i class="fa-solid fa-table text-rose-400 w-4 text-center"></i>
+          <span class="text-slate-200">4: 桌子 (Table)</span>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+          <i class="fa-solid fa-bottle-water text-cyan-400 w-4 text-center"></i>
+          <span class="text-slate-200">5: 水杯 (Bottle)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security / HTTPS Notice & Start Action -->
+    <div class="w-full max-w-md pb-6 space-y-4 text-center">
+      <div id="https-warning" class="hidden text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5">
+        <i class="fa-solid fa-triangle-exclamation mr-1"></i> 提示：WebAR 相機功能必須在 HTTPS 加密網絡或 Localhost 環境下方可啟動。
+      </div>
+
+      <button id="start-ar-btn" onclick="initARSession()" class="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 text-white font-semibold text-base shadow-lg shadow-blue-500/30 active:scale-[0.98] transition-all flex items-center justify-center space-x-2">
+        <i class="fa-solid fa-camera text-lg"></i>
+        <span>啟動相機進入 AR</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 2. AR Viewport HUD & Dynamic Overlay -->
+  <div id="ar-hud" class="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-4 sm:p-6 opacity-0 transition-opacity duration-300">
+    
+    <!-- Top Navigation & Status Bar -->
+    <div class="w-full flex items-center justify-between pointer-events-auto">
+      <!-- Status Badge -->
+      <div id="status-badge" class="glass-panel px-3.5 py-2 rounded-full flex items-center space-x-2.5 text-xs font-medium shadow-lg transition-all duration-300">
+        <span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+        <span id="status-text" class="text-slate-200">正在搜尋目標圖片...</span>
+      </div>
+
+      <!-- Quick Action Buttons Top Right -->
+      <div class="flex items-center space-x-2">
+        <button onclick="toggleTargetGuide()" class="glass-button w-10 h-10 rounded-full flex items-center justify-center text-slate-200 hover:text-white shadow-lg" title="圖卡指引">
+          <i class="fa-solid fa-images text-sm"></i>
+        </button>
+        <button onclick="takeSnapshot()" class="glass-button w-10 h-10 rounded-full flex items-center justify-center text-slate-200 hover:text-white shadow-lg" title="拍照截圖">
+          <i class="fa-solid fa-camera text-sm"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Center Scanner Helper Box (Visible when scanning) -->
+    <div id="scanning-overlay" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none transition-opacity duration-300">
+      <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border-2 border-dashed border-blue-400/50 reticle-box flex items-center justify-center">
+        <!-- Reticle Corner Accents -->
+        <div class="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-blue-400 rounded-tl-lg"></div>
+        <div class="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-blue-400 rounded-tr-lg"></div>
+        <div class="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-blue-400 rounded-bl-lg"></div>
+        <div class="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-blue-400 rounded-br-lg"></div>
+        
+        <!-- Animated Scanner Beam Line -->
+        <div class="scan-line rounded-full"></div>
+        
+        <i class="fa-solid fa-qrcode text-4xl text-blue-400/20"></i>
+      </div>
+      <p class="mt-4 text-xs font-medium text-slate-200 bg-slate-900/80 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-700/50 shadow-md">
+        請將相機鏡頭對準目標圖片
+      </p>
+    </div>
+
+    <!-- Bottom Info Card & Controls Container -->
+    <div class="w-full max-w-md mx-auto space-y-3 pointer-events-auto">
+      
+      <!-- Tracked Model Card Info Overlay (Hidden until detected) -->
+      <div id="model-info-card" class="glass-panel rounded-2xl p-4 border border-blue-500/30 transform translate-y-8 opacity-0 transition-all duration-300 pointer-events-auto">
+        <div class="flex items-start justify-between">
+          <div class="flex items-center space-x-3">
+            <div id="model-card-icon" class="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400 text-lg">
+              <i class="fa-solid fa-cube"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <h3 id="model-card-title" class="text-base font-bold text-white">模型名稱</h3>
+                <span id="model-card-index" class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-mono border border-blue-500/30">Target #0</span>
+              </div>
+              <p id="model-card-file" class="text-xs text-slate-400 font-mono">model.glb</p>
+            </div>
+          </div>
+          <button onclick="resetModelTransform()" class="glass-button text-xs px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white flex items-center space-x-1">
+            <i class="fa-solid fa-rotate-left"></i>
+            <span>重置角度</span>
+          </button>
+        </div>
+        <p id="model-card-desc" class="mt-2.5 text-xs text-slate-300 leading-relaxed border-t border-slate-800 pt-2">
+          詳細模型描述與細節展示說明。
+        </p>
+      </div>
+
+      <!-- AR Interactive Controls Toolbar -->
+      <div class="glass-panel rounded-2xl p-2.5 flex items-center justify-around shadow-2xl border border-slate-800">
+        <!-- Scale Out -->
+        <button onclick="adjustScale(-0.1)" class="glass-button w-11 h-11 rounded-xl flex flex-col items-center justify-center text-slate-300 hover:text-white" title="縮小模型">
+          <i class="fa-solid fa-minus text-sm"></i>
+          <span class="text-[9px] mt-0.5 text-slate-400">縮小</span>
+        </button>
+
+        <!-- Scale In -->
+        <button onclick="adjustScale(0.1)" class="glass-button w-11 h-11 rounded-xl flex flex-col items-center justify-center text-slate-300 hover:text-white" title="放大模型">
+          <i class="fa-solid fa-plus text-sm"></i>
+          <span class="text-[9px] mt-0.5 text-slate-400">放大</span>
+        </button>
+
+        <!-- Rotate Left -->
+        <button onclick="adjustRotation(-30)" class="glass-button w-11 h-11 rounded-xl flex flex-col items-center justify-center text-slate-300 hover:text-white" title="左旋轉">
+          <i class="fa-solid fa-rotate-left text-sm"></i>
+          <span class="text-[9px] mt-0.5 text-slate-400">向左</span>
+        </button>
+
+        <!-- Rotate Right -->
+        <button onclick="adjustRotation(30)" class="glass-button w-11 h-11 rounded-xl flex flex-col items-center justify-center text-slate-300 hover:text-white" title="右旋轉">
+          <i class="fa-solid fa-rotate-right text-sm"></i>
+          <span class="text-[9px] mt-0.5 text-slate-400">向右</span>
+        </button>
+
+        <!-- Auto Rotate Toggle -->
+        <button id="autorotate-btn" onclick="toggleAutoRotate()" class="glass-button w-11 h-11 rounded-xl flex flex-col items-center justify-center text-slate-300 hover:text-white" title="自動旋轉">
+          <i class="fa-solid fa-arrows-spin text-sm"></i>
+          <span class="text-[9px] mt-0.5 text-slate-400">自轉</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 3. Target Reference Guide Modal/Drawer -->
+  <div id="target-guide-modal" class="fixed inset-0 z-40 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+    <div class="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[85vh] flex flex-col shadow-2xl">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-map text-blue-400"></i>
+          <h2 class="text-base font-bold text-white">目標卡片圖冊 (targets.mind)</h2>
+        </div>
+        <button onclick="toggleTargetGuide()" class="text-slate-400 hover:text-white p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Target List Grid -->
+      <div class="overflow-y-auto space-y-2.5 pr-1 flex-1 text-xs">
+        <!-- Target Item 0 -->
+        <div class="bg-slate-950/60 rounded-xl p-3 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 text-lg">
+              <i class="fa-solid fa-book"></i>
+            </div>
+            <div>
+              <div class="font-bold text-slate-100">Index 0: 書本 (Book)</div>
+              <div class="text-slate-400 font-mono text-[11px]">book.glb</div>
+            </div>
+          </div>
+          <span class="px-2 py-1 rounded bg-slate-800 text-slate-300 font-mono">Target #0</span>
+        </div>
+
+        <!-- Target Item 1 -->
+        <div class="bg-slate-950/60 rounded-xl p-3 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-lg">
+              <i class="fa-solid fa-box"></i>
+            </div>
+            <div>
+              <div class="font-bold text-slate-100">Index 1: 箱子 (Box)</div>
+              <div class="text-slate-400 font-mono text-[11px]">box.glb</div>
+            </div>
+          </div>
+          <span class="px-2 py-1 rounded bg-slate-800 text-slate-300 font-mono">Target #1</span>
+        </div>
+
+        <!-- Target Item 2 -->
+        <div class="bg-slate-950/60 rounded-xl p-3 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-lg">
+              <i class="fa-solid fa-chair"></i>
+            </div>
+            <div>
+              <div class="font-bold text-slate-100">Index 2: 椅子 (Chair)</div>
+              <div class="text-slate-400 font-mono text-[11px]">chair.glb</div>
+            </div>
+          </div>
+          <span class="px-2 py-1 rounded bg-slate-800 text-slate-300 font-mono">Target #2</span>
+        </div>
+
+        <!-- Target Item 3 -->
+        <div class="bg-slate-950/60 rounded-xl p-3 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 text-lg">
+              <i class="fa-solid fa-pen-ruler"></i>
+            </div>
+            <div>
+              <div class="font-bold text-slate-100">Index 3: 鉛筆盒 (Pencil Box)</div>
+              <div class="text-slate-400 font-mono text-[11px]">pencilbox.glb</div>
+            </div>
+          </div>
+          <span class="px-2 py-1 rounded bg-slate-800 text-slate-300 font-mono">Target #3</span>
+        </div>
+
+        <!-- Target Item 4 -->
+        <div class="bg-slate-950/60 rounded-xl p-3 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 text-lg">
+              <i class="fa-solid fa-table"></i>
+            </div>
+            <div>
+              <div class="font-bold text-slate-100">Index 4: 桌子 (Table)</div>
+              <div class="text-slate-400 font-mono text-[11px]">table.glb</div>
+            </div>
+          </div>
+          <span class="px-2 py-1 rounded bg-slate-800 text-slate-300 font-mono">Target #4</span>
+        </div>
+
+        <!-- Target Item 5 -->
+        <div class="bg-slate-950/60 rounded-xl p-3 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-lg">
+              <i class="fa-solid fa-bottle-water"></i>
+            </div>
+            <div>
+              <div class="font-bold text-slate-100">Index 5: 水杯 (Water Bottle)</div>
+              <div class="text-slate-400 font-mono text-[11px]">waterbottle.glb</div>
+            </div>
+          </div>
+          <span class="px-2 py-1 rounded bg-slate-800 text-slate-300 font-mono">Target #5</span>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <button onclick="toggleTargetGuide()" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition-colors">
+        關閉指引
+      </button>
+    </div>
+  </div>
+
+  <!-- 4. Snapshot Preview Modal -->
+  <div id="snapshot-modal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+    <div class="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4 text-center shadow-2xl">
+      <h3 class="text-sm font-bold text-white flex items-center justify-center space-x-2">
+        <i class="fa-solid fa-image text-blue-400"></i>
+        <span>AR 畫面快照預覽</span>
+      </h3>
+      <div class="relative w-full rounded-xl overflow-hidden border border-slate-800 bg-black aspect-[3/4] flex items-center justify-center">
+        <img id="snapshot-img" class="w-full h-full object-contain" src="" alt="AR Snapshot">
+      </div>
+      <div class="flex items-center space-x-2">
+        <button onclick="downloadSnapshot()" class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-lg shadow-blue-500/20 flex items-center justify-center space-x-1.5">
+          <i class="fa-solid fa-download"></i>
+          <span>下載照片</span>
+        </button>
+        <button onclick="closeSnapshotModal()" class="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs">
+          關閉
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. A-Frame AR Scene Viewport -->
+  <a-scene 
+    id="ar-scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiScanning: #scanning-overlay; filterMinCF: 0.0001; filterBeta: 0.001;" 
+    color-space="sRGB" 
+    renderer="colorManagement: true, physicallyCorrectLights: true, antialias: true" 
+    vr-mode-ui="enabled: false" 
+    device-orientation-permission-ui="enabled: false"
+    embedded
+    class="w-full h-full absolute inset-0 z-0">
+    
+    <!-- Asset Preloader -->
+    <a-assets id="ar-assets">
+      <a-asset-item id="asset-book" src="./book.glb"></a-asset-item>
+      <a-asset-item id="asset-box" src="./box.glb"></a-asset-item>
+      <a-asset-item id="asset-chair" src="./chair.glb"></a-asset-item>
+      <a-asset-item id="asset-pencilbox" src="./pencilbox.glb"></a-asset-item>
+      <a-asset-item id="asset-table" src="./table.glb"></a-asset-item>
+      <a-asset-item id="asset-waterbottle" src="./waterbottle.glb"></a-asset-item>
+    </a-assets>
+
+    <!-- Camera -->
+    <a-camera position="0 0 0" look-controls="enabled: false" raycaster="objects: .clickable"></a-camera>
+
+    <!-- Target 0: 書本 (Book) -->
+    <a-entity id="target-0" mindar-image-target="targetIndex: 0">
+      <a-entity id="wrapper-0" class="model-wrapper" position="0 0 0" rotation="0 0 0" scale="0.5 0.5 0.5">
+        <a-gltf-model 
+          src="#asset-book" 
+          position="0 0 0" 
+          rotation="0 0 0" 
+          scale="1 1 1"
+          animation="property: position; to: 0 0.05 0; dir: alternate; dur: 2000; loop: true; easing: easeInOutSine">
+        </a-gltf-model>
+      </a-entity>
+    </a-entity>
+
+    <!-- Target 1: 箱子 (Box) -->
+    <a-entity id="target-1" mindar-image-target="targetIndex: 1">
+      <a-entity id="wrapper-1" class="model-wrapper" position="0 0 0" rotation="0 0 0" scale="0.5 0.5 0.5">
+        <a-gltf-model 
+          src="#asset-box" 
+          position="0 0 0" 
+          rotation="0 0 0" 
+          scale="1 1 1"
+          animation="property: position; to: 0 0.05 0; dir: alternate; dur: 2000; loop: true; easing: easeInOutSine">
+        </a-gltf-model>
+      </a-entity>
+    </a-entity>
+
+    <!-- Target 2: 椅子 (Chair) -->
+    <a-entity id="target-2" mindar-image-target="targetIndex: 2">
+      <a-entity id="wrapper-2" class="model-wrapper" position="0 0 0" rotation="0 0 0" scale="0.5 0.5 0.5">
+        <a-gltf-model 
+          src="#asset-chair" 
+          position="0 0 0" 
+          rotation="0 0 0" 
+          scale="1 1 1"
+          animation="property: position; to: 0 0.05 0; dir: alternate; dur: 2000; loop: true; easing: easeInOutSine">
+        </a-gltf-model>
+      </a-entity>
+    </a-entity>
+
+    <!-- Target 3: 鉛筆盒 (Pencil Box) -->
+    <a-entity id="target-3" mindar-image-target="targetIndex: 3">
+      <a-entity id="wrapper-3" class="model-wrapper" position="0 0 0" rotation="0 0 0" scale="0.5 0.5 0.5">
+        <a-gltf-model 
+          src="#asset-pencilbox" 
+          position="0 0 0" 
+          rotation="0 0 0" 
+          scale="1 1 1"
+          animation="property: position; to: 0 0.05 0; dir: alternate; dur: 2000; loop: true; easing: easeInOutSine">
+        </a-gltf-model>
+      </a-entity>
+    </a-entity>
+
+    <!-- Target 4: 桌子 (Table) -->
+    <a-entity id="target-4" mindar-image-target="targetIndex: 4">
+      <a-entity id="wrapper-4" class="model-wrapper" position="0 0 0" rotation="0 0 0" scale="0.5 0.5 0.5">
+        <a-gltf-model 
+          src="#asset-table" 
+          position="0 0 0" 
+          rotation="0 0 0" 
+          scale="1 1 1"
+          animation="property: position; to: 0 0.05 0; dir: alternate; dur: 2000; loop: true; easing: easeInOutSine">
+        </a-gltf-model>
+      </a-entity>
+    </a-entity>
+
+    <!-- Target 5: 水杯 (Water Bottle) -->
+    <a-entity id="target-5" mindar-image-target="targetIndex: 5">
+      <a-entity id="wrapper-5" class="model-wrapper" position="0 0 0" rotation="0 0 0" scale="0.5 0.5 0.5">
+        <a-gltf-model 
+          src="#asset-waterbottle" 
+          position="0 0 0" 
+          rotation="0 0 0" 
+          scale="1 1 1"
+          animation="property: position; to: 0 0.05 0; dir: alternate; dur: 2000; loop: true; easing: easeInOutSine">
+        </a-gltf-model>
+      </a-entity>
+    </a-entity>
+
+  </a-scene>
+
+  <script>
+    // Targets Metadata Configuration
+    const TARGET_CONFIG = [
+      {
+        index: 0,
+        title: "書本 (Book)",
+        file: "book.glb",
+        icon: "fa-book",
+        colorClass: "text-blue-400",
+        desc: "精裝精美書籍 3D 模型，具備清晰的封面紋理與精緻細節。"
+      },
+      {
+        index: 1,
+        title: "箱子 (Box)",
+        file: "box.glb",
+        icon: "fa-box",
+        colorClass: "text-amber-400",
+        desc: "標準物流包裝紙箱模型，呈現真實紙質結構與邊角。"
+      },
+      {
+        index: 2,
+        title: "椅子 (Chair)",
+        file: "chair.glb",
+        icon: "fa-chair",
+        colorClass: "text-emerald-400",
+        desc: "人體工學設計座椅，簡約風格適合空間設計與家具展示。"
+      },
+      {
+        index: 3,
+        title: "鉛筆盒 (Pencil Box)",
+        file: "pencilbox.glb",
+        icon: "fa-pen-ruler",
+        colorClass: "text-purple-400",
+        desc: "多功能文具盒模型，適用於校園與辦公用品情境展示。"
+      },
+      {
+        index: 4,
+        title: "桌子 (Table)",
+        file: "table.glb",
+        icon: "fa-table",
+        colorClass: "text-rose-400",
+        desc: "現代木質桌子模型，具有流暢線條與溫暖質感。"
+      },
+      {
+        index: 5,
+        title: "水杯 (Water Bottle)",
+        file: "waterbottle.glb",
+        icon: "fa-bottle-water",
+        colorClass: "text-cyan-400",
+        desc: "時尚隨行保溫水杯，造型俐落並帶有些微金屬光澤。"
+      }
+    ];
+
+    // Global State Tracking
+    let activeTargetIndex = null;
+    let autoRotateEnabled = false;
+    let autoRotateAnimationFrame = null;
+
+    // Per Target Transforms (scale, rotationY)
+    const targetTransforms = {
+      0: { scale: 0.5, rotationY: 0 },
+      1: { scale: 0.5, rotationY: 0 },
+      2: { scale: 0.5, rotationY: 0 },
+      3: { scale: 0.5, rotationY: 0 },
+      4: { scale: 0.5, rotationY: 0 },
+      5: { scale: 0.5, rotationY: 0 }
+    };
+
+    window.addEventListener('DOMContentLoaded', () => {
+      // Security HTTPS Warning Check
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        const warning = document.getElementById('https-warning');
+        if (warning) warning.classList.remove('hidden');
+      }
+
+      // Attach Event Listeners to MindAR Target entities
+      TARGET_CONFIG.forEach((target) => {
+        const targetEntity = document.getElementById(`target-${target.index}`);
+        if (targetEntity) {
+          targetEntity.addEventListener('targetFound', () => onTargetFound(target.index));
+          targetEntity.addEventListener('targetLost', () => onTargetLost(target.index));
+        }
+      });
+
+      // Gesture Controls Setup (Touch Drag & Pinch Zoom)
+      setupTouchGestures();
+    });
+
+    // Start WebAR Session
+    function initARSession() {
+      const startBtn = document.getElementById('start-ar-btn');
+      startBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-lg"></i> <span>相機啟動中...</span>`;
+      
+      const sceneEl = document.getElementById('ar-scene');
+      const arSystem = sceneEl.systems['mindar-image-system'];
+
+      try {
+        arSystem.start();
+        
+        // Hide Start Overlay & Reveal AR HUD
+        setTimeout(() => {
+          document.getElementById('start-overlay').classList.add('opacity-0', 'pointer-events-none');
+          document.getElementById('ar-hud').classList.remove('opacity-0');
+          document.getElementById('ar-hud').classList.add('opacity-100');
+        }, 800);
+
+      } catch (err) {
+        console.error("Camera startup error:", err);
+        startBtn.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> <span>無法存取相機，請檢查權限</span>`;
+      }
+    }
+
+    // Target Detection Callbacks
+    function onTargetFound(index) {
+      activeTargetIndex = index;
+      const targetData = TARGET_CONFIG[index];
+
+      // Update Top Status Badge
+      const statusBadge = document.getElementById('status-badge');
+      const statusDot = document.getElementById('status-dot');
+      const statusText = document.getElementById('status-text');
+
+      statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-500/50";
+      statusText.innerText = `已辨識到：${targetData.title}`;
+      statusBadge.className = "glass-panel px-3.5 py-2 rounded-full flex items-center space-x-2.5 text-xs font-medium shadow-lg border border-emerald-500/40 bg-emerald-950/40";
+
+      // Hide Scanning Frame Lines
+      document.getElementById('scanning-overlay').classList.add('opacity-0');
+
+      // Update Info Card Content
+      document.getElementById('model-card-title').innerText = targetData.title;
+      document.getElementById('model-card-index').innerText = `Target #${index}`;
+      document.getElementById('model-card-file').innerText = targetData.file;
+      document.getElementById('model-card-desc').innerText = targetData.desc;
+      document.getElementById('model-card-icon').innerHTML = `<i class="fa-solid ${targetData.icon} ${targetData.colorClass}"></i>`;
+
+      // Show Info Card
+      const card = document.getElementById('model-info-card');
+      card.classList.remove('opacity-0', 'translate-y-8', 'pointer-events-none');
+      card.classList.add('opacity-100', 'translate-y-0');
+
+      // Trigger Haptic Feedback on mobile
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+    }
+
+    function onTargetLost(index) {
+      if (activeTargetIndex === index) {
+        activeTargetIndex = null;
+
+        // Reset Top Status Badge
+        const statusBadge = document.getElementById('status-badge');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse";
+        statusText.innerText = "正在搜尋目標圖片...";
+        statusBadge.className = "glass-panel px-3.5 py-2 rounded-full flex items-center space-x-2.5 text-xs font-medium shadow-lg";
+
+        // Show Scanning Frame Overlay
+        document.getElementById('scanning-overlay').classList.remove('opacity-0');
+
+        // Hide Info Card
+        const card = document.getElementById('model-info-card');
+        card.classList.remove('opacity-100', 'translate-y-0');
+        card.classList.add('opacity-0', 'translate-y-8', 'pointer-events-none');
+      }
+    }
+
+    // Transform Adjustment Functions
+    function adjustScale(delta) {
+      if (activeTargetIndex === null) return;
+      const t = targetTransforms[activeTargetIndex];
+      t.scale = Math.min(Math.max(t.scale + delta, 0.1), 2.5); // Clamp between 0.1x and 2.5x
+      applyTransform(activeTargetIndex);
+    }
+
+    function adjustRotation(deltaDeg) {
+      if (activeTargetIndex === null) return;
+      const t = targetTransforms[activeTargetIndex];
+      t.rotationY = (t.rotationY + deltaDeg) % 360;
+      applyTransform(activeTargetIndex);
+    }
+
+    function resetModelTransform() {
+      if (activeTargetIndex === null) return;
+      targetTransforms[activeTargetIndex] = { scale: 0.5, rotationY: 0 };
+      applyTransform(activeTargetIndex);
+    }
+
+    function applyTransform(index) {
+      const wrapper = document.getElementById(`wrapper-${index}`);
+      if (wrapper) {
+        const t = targetTransforms[index];
+        wrapper.setAttribute('scale', `${t.scale} ${t.scale} ${t.scale}`);
+        wrapper.setAttribute('rotation', `0 ${t.rotationY} 0`);
+      }
+    }
+
+    // Auto Rotate Toggle
+    function toggleAutoRotate() {
+      autoRotateEnabled = !autoRotateEnabled;
+      const btn = document.getElementById('autorotate-btn');
+
+      if (autoRotateEnabled) {
+        btn.classList.add('bg-blue-600/50', 'border-blue-400', 'text-white');
+        startAutoRotationLoop();
+      } else {
+        btn.classList.remove('bg-blue-600/50', 'border-blue-400', 'text-white');
+        cancelAnimationFrame(autoRotateAnimationFrame);
+      }
+    }
+
+    function startAutoRotationLoop() {
+      if (!autoRotateEnabled) return;
+      if (activeTargetIndex !== null) {
+        targetTransforms[activeTargetIndex].rotationY = (targetTransforms[activeTargetIndex].rotationY + 1) % 360;
+        applyTransform(activeTargetIndex);
+      }
+      autoRotateAnimationFrame = requestAnimationFrame(startAutoRotationLoop);
+    }
+
+    // Touch & Gesture Controls (One-finger drag rotation)
+    function setupTouchGestures() {
+      let touchStartX = 0;
+      let isDragging = false;
+
+      window.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          touchStartX = e.touches[0].clientX;
+          isDragging = true;
+        }
+      });
+
+      window.addEventListener('touchmove', (e) => {
+        if (isDragging && activeTargetIndex !== null && e.touches.length === 1) {
+          const deltaX = e.touches[0].clientX - touchStartX;
+          touchStartX = e.touches[0].clientX;
+          adjustRotation(deltaX * 0.5); // Sensitivity factor
+        }
+      });
+
+      window.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+    }
+
+    // Target Reference Modal Toggle
+    function toggleTargetGuide() {
+      const modal = document.getElementById('target-guide-modal');
+      const isHidden = modal.classList.contains('opacity-0');
+
+      if (isHidden) {
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+        modal.classList.add('opacity-100');
+      } else {
+        modal.classList.remove('opacity-100');
+        modal.classList.add('opacity-0', 'pointer-events-none');
+      }
+    }
+
+    // AR Snapshot Capture Feature
+    function takeSnapshot() {
+      const scene = document.getElementById('ar-scene');
+      
+      // Use A-Frame screenshot component
+      const screenshotComp = scene.components.screenshot;
+      let canvas = null;
+      
+      if (screenshotComp) {
+        canvas = screenshotComp.getCanvas('perspective');
+      } else {
+        canvas = scene.querySelector('canvas');
+      }
+
+      if (canvas) {
+        const imageUri = canvas.toDataURL('image/png');
+        document.getElementById('snapshot-img').src = imageUri;
+
+        const snapshotModal = document.getElementById('snapshot-modal');
+        snapshotModal.classList.remove('opacity-0', 'pointer-events-none');
+        snapshotModal.classList.add('opacity-100');
+      }
+    }
+
+    function closeSnapshotModal() {
+      const snapshotModal = document.getElementById('snapshot-modal');
+      snapshotModal.classList.remove('opacity-100');
+      snapshotModal.classList.add('opacity-0', 'pointer-events-none');
+    }
+
+    function downloadSnapshot() {
+      const imgUri = document.getElementById('snapshot-img').src;
+      if (!imgUri) return;
+
+      const link = document.createElement('a');
+      link.download = `WebAR-Snapshot-${Date.now()}.png`;
+      link.href = imgUri;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+</body>
+</html>
